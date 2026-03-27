@@ -1,0 +1,15 @@
+services:
+  mock-llm:
+    build: .
+    container_name: mock_llm
+    ports: 
+      - "8001:8001"
+    
+    # Mounts the local project folder into the container at /app
+    # Any file change in the machine is directly reflected in the container
+    # --reload then detects the filechange made in the container and restarts the server
+    # Now we don't need to run docker compose up --build after every code change
+    volumes:
+      - .:/app
+    
+    restart: unless-stopped
