@@ -1,7 +1,7 @@
 services:
   mock-llm:
     build: .
-    container_name: mock_llm
+    container_name: fastapi_mock_llm
     ports: 
       - "8001:8001"
     
@@ -11,5 +11,23 @@ services:
     # Now we don't need to run docker compose up --build after every code change
     volumes:
       - .:/app
+
+    # Overrides the CMD in Dockerfile
+    command: uvicorn mock_llm:app --host 0.0.0.0 --port 8001 --reload
     
+    restart: unless-stopped
+
+  main-app:
+    build: .
+    container_name: fastapi_main_app
+    ports: 
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - mock-llm
+    
+    # Overrides the CMD in Dockerfile
+    command: uvicorn main_app:app --host 0.0.0.0 --port 8000 --reload
+
     restart: unless-stopped
