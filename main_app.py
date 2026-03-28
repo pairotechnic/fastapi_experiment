@@ -19,12 +19,14 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel): 
     message: str
-    model: str = "gpt-4"
+    model: str = "claude-opus-4-6"
+    provider: str = "Anthropic"
 
 class ChatResponse(BaseModel):
     id: str
     content: str
     model: str
+    provider: str
 
 # ------------------------------
 # Lifespan - manages shared aiohttp sessions
@@ -57,6 +59,7 @@ async def health():
 async def chat(request: ChatRequest):
     payload = {
         "model": request.model,
+        "provider": request.provider,
         "messages": [{"role": "user", "content": request.message}]
     }
 
@@ -75,5 +78,6 @@ async def chat(request: ChatRequest):
         id=data["id"],
         content=data["content"],
         model=data["model"],
+        provider=data["provider"],
         dummy_field="hello_world" # Extra field will get stripped from response
     )
