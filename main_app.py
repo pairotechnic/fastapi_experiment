@@ -67,25 +67,53 @@ async def chat(request: ChatRequest):
         "messages": [{"role": "user", "content": request.message}]
     }
 
-    # Hands control back to the event loop until response's headers and status code arrive
-    async with app.state.session.post(LLM_URL, json=payload) as response: 
+    timeout = aiohttp.ClientTimeout(total=30)
 
-        # Don't share the upstream mock llm error status code with the end user, share a readable 502 server error
-        if response.status != 200:
-            # Hands control back to event loop
-            # Control returns here after response body arrives, and event loop gives control back
-            error_body = await response.text()
-            print(f"LLM error — status: {response.status}, body: {error_body}")
-            raise HTTPException(status_code=502, detail="LLM service error")
-        
-        # Hands control back to event loop, until the full body arrives
-        # Headers and body are 2 separate I/O events
-        data = await response.json() 
+    # Network-level failure - mock LLM is down, DNS fails, connection refused, timeout
+    try :
+        # Hands control back to the event loop until response's headers and status code arrive
+        async with app.state.session.post(LLM_URL, json=payload, timeout=timeout) as response: 
 
-    return ChatResponse(
-        id=data["id"],
-        content=data["content"],
-        model=data["model"],
-        provider=data["provider"],
-        dummy_field="hello_world" # Extra field will get stripped from response
-    )
+            # Don't share the upstream mock llm error status code with the end user, share a readable 502 server error
+            if response.status != 200:
+                # Hands control back to event loop
+                # Control returns here after response body arrives, and event loop gives control back
+                error_body = await response.text()
+                print(f"LLM error — status: {response.status}, body: {error_body}")
+                raise HTTPException(status_code=502, detail="LLM service error")
+            
+            # Hands control back to event loop, until the full body arrives
+            # Headers and body are 2 separate I/O events
+            try :
+                data = await response.json()
+            except Exception as e:
+                print(f"LLM returned invalid JSON: {e}")
+                raise HTTPException(status_code=502, detail="LLM returned invalid response")
+            
+    except HTTPException:
+        raise # Let FastAPI handle these - don't swallow them in the outer except
+
+    except aiohttp.ClientConnectionError as e:
+        print(f"Could not reach LLM - connection error: {e}")
+        raise HTTPException(status_code=503, detail="LLM service unavailable")
+    
+    except aiohttp.ServerTimeoutError as e:
+        print(f"LLM request timed out: {e}")
+        raise HTTPException(status_code=504, detail="LLM service timed out")
+    
+    except Exception as e:
+        print(f"Unexpected error calling LLM: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+    # LLM returned JSON but is missing expected fields
+    try :
+        return ChatResponse(
+            id=data["id"],
+            content=data["content"],
+            model=data["model"],
+            provider=data["provider"],
+            dummy_field="hello_world" # Extra field will get stripped from response
+        )
+    except KeyError as e:
+        print(f"LLM response missing expected field: {e}")
+        raise HTTPException(status_code=502, detail="Unexpected LLM response shape")
