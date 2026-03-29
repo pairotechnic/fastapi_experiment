@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 # Third-Party Library Imports
 import aiohttp # non-blocking http requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException # Use JSONResponse when you want precise control over the shape of the response
 from pydantic import BaseModel
 
 # Local Application Imports
@@ -34,11 +34,15 @@ class ChatResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Create the session once
-    app.state.session = aiohttp.ClientSession()
-    yield
-    # Shutdown: Close it cleanly
-    await app.state.session.close()
+    # Before yield : Startup: Create the session once
+    # After yield : Shutdown: Close it cleanly
+    async with aiohttp.ClientSession() as app.state.session:
+        yield
+
+    # Explicit version : 
+    # app.state.session = aiohttp.ClientSession()
+    # yield
+    # await app.state.session.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -68,6 +72,10 @@ async def chat(request: ChatRequest):
 
         # Don't share the upstream mock llm error status code with the end user, share a readable 502 server error
         if response.status != 200:
+            # Hands control back to event loop
+            # Control returns here after response body arrives, and event loop gives control back
+            error_body = await response.text()
+            print(f"LLM error — status: {response.status}, body: {error_body}")
             raise HTTPException(status_code=502, detail="LLM service error")
         
         # Hands control back to event loop, until the full body arrives
