@@ -1,6 +1,7 @@
 # Standard Library Imports
 from collections import defaultdict
 from contextlib import asynccontextmanager 
+import json
 import time
 
 # Third-Party Library Imports
@@ -19,6 +20,7 @@ from config import (
     RATE_LIMIT_WINDOW_SECONDS,
     logger
 )
+from helpers import trace_exception_hierarchy
 
 
 # ------------------------------
@@ -26,9 +28,6 @@ from config import (
 # ------------------------------
 
 LLM_TIMEOUT = aiohttp.ClientTimeout(total=LLM_TIMEOUT_SECONDS)
-
-# Rate Limiting State
-request_log: dict[str: list[float]] = defaultdict(list)
 
 # ------------------------------
 # Pydantic Models
@@ -58,6 +57,8 @@ async def lifespan(app: FastAPI):
     # Before yield : Startup: Create the session once
     # After yield : Shutdown: Close it cleanly
     async with aiohttp.ClientSession() as app.state.session:
+        # Rate Limiting State
+        app.state.request_log = defaultdict(list)
         yield
 
     # Explicit version : 
@@ -88,9 +89,9 @@ async def rate_limiter(request: Request, call_next):
     window_start = now - RATE_LIMIT_WINDOW_SECONDS
 
     # Drop timestamps outside the current window
-    request_log[ip] = [t for t in request_log[ip] if t > window_start]
+    app.state.request_log[ip] = [t for t in app.state.request_log[ip] if t > window_start]
 
-    if len(request_log[ip]) >= RATE_LIMIT_REQUESTS:
+    if len(app.state.request_log[ip]) >= RATE_LIMIT_REQUESTS:
         logger.warning(f"Rate limit exceeded for IP : {ip}")
         return JSONResponse(
             status_code=429,
@@ -98,7 +99,7 @@ async def rate_limiter(request: Request, call_next):
         )
     
     # Record this request
-    request_log[ip].append(now)
+    app.state.request_log[ip].append(now)
 
     return await call_next(request)
 
@@ -139,8 +140,15 @@ async def chat(request: ChatRequest):
             # Headers and body are 2 separate I/O events
             try :
                 data = await response.json()
+            except aiohttp.ContentTypeError as e:
+                logger.error(f"LLM response Content-Type header isn't application/json")
+                raise HTTPException(status_code=502, detail="LLM returned invalid response - invalid headers")
+            except json.JSONDecodeError as e:
+                logger.error(f"LLM response header claims JSON but the body is malformed")
+                raise HTTPException(status_code=502, detail="LLM returned invalid response - malformed body")
             except Exception as e:
                 logger.error(f"LLM returned invalid JSON: {e}")
+                trace_exception_hierarchy(e)
                 raise HTTPException(status_code=502, detail="LLM returned invalid response")
             
     except HTTPException:
