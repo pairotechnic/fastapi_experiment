@@ -28,67 +28,61 @@ async def client():
         ) as client :
             yield client
 
-# ------------------------------
-# Health check
-# ------------------------------
+class TestHealth:
+    """Tests for /health endpoint"""
 
-# Decorator redundant because of asyncio_mode = auto in pytest.ini
-@pytest.mark.asyncio 
-async def test_health(client):
-    response = await client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+    # Decorator redundant because of asyncio_mode = auto in pytest.ini
+    @pytest.mark.asyncio 
+    async def test_health(self, client):
+        response = await client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "healthy"
 
-# ------------------------------
-# Chat endpoint - success path
-# ------------------------------
+class TestChat:
+    """Tests for /chat endpoint"""
 
-# Decorator redundant because of asyncio_mode = auto in pytest.ini
-@pytest.mark.asyncio
-async def test_chat_success(client):
-    mock_response_data = {
-        "id": "mock-id-123",
-        "content": "Success - Mock LLM Response",
-        "model": "claude-opus-4-6",
-        "provider": "Anthropic"
-    }
-
-    # We mock the aiohttp session so tests don't need the mock-llm container running
-    mock_post = AsyncMock()
-    mock_post.__aenter__ = AsyncMock(return_value=mock_post)
-    mock_post.__aexit__ = AsyncMock(return_value=False)
-    mock_post.status = 200 # Mock LLM response status
-    mock_post.json = AsyncMock(return_value=mock_response_data)
-
-    with patch.object(app.state.session, "post", return_value=mock_post):
-        response = await client.post("/chat", json={
-            "message": "hello",
+    # Decorator redundant because of asyncio_mode = auto in pytest.ini
+    @pytest.mark.asyncio
+    async def test_chat_success(self, client):
+        mock_response_data = {
+            "id": "mock-id-123",
+            "content": "Success - Mock LLM Response",
             "model": "claude-opus-4-6",
             "provider": "Anthropic"
-        })
+        }
 
-    # Response status_code returned by /chat endpoint when it receives a 200 status from LLM
-    assert response.status_code == 200 
-    data = response.json()
-    assert data["content"] == "Success - Mock LLM Response"
-    assert data["provider"] == "Anthropic"
+        # We mock the aiohttp session so tests don't need the mock-llm container running
+        mock_post = AsyncMock()
+        mock_post.__aenter__ = AsyncMock(return_value=mock_post)
+        mock_post.__aexit__ = AsyncMock(return_value=False)
+        mock_post.status = 200 # Mock LLM response status
+        mock_post.json = AsyncMock(return_value=mock_response_data)
 
-# ------------------------------
-# Chat endpoint - LLM error path
-# ------------------------------
+        with patch.object(app.state.session, "post", return_value=mock_post):
+            response = await client.post("/chat", json={
+                "message": "hello",
+                "model": "claude-opus-4-6",
+                "provider": "Anthropic"
+            })
 
-# Decorator redundant because of asyncio_mode = auto in pytest.ini
-@pytest.mark.asyncio
-async def test_chat_llm_error(client):
-    mock_post = AsyncMock()
-    mock_post.__aenter__ = AsyncMock(return_value=mock_post)
-    mock_post.__aexit__ = AsyncMock(return_value=False)
-    mock_post.status = 403 # Simulate upstream error
+        # Response status_code returned by /chat endpoint when it receives a 200 status from LLM
+        assert response.status_code == 200 
+        data = response.json()
+        assert data["content"] == "Success - Mock LLM Response"
+        assert data["provider"] == "Anthropic"
 
-    with patch.object(app.state.session, "post", return_value=mock_post):
-        response = await client.post("/chat", json={
-            "message": "hello",
-            "provider": "OpenAI"
-        })
+    # Decorator redundant because of asyncio_mode = auto in pytest.ini
+    @pytest.mark.asyncio
+    async def test_chat_llm_error(self, client):
+        mock_post = AsyncMock()
+        mock_post.__aenter__ = AsyncMock(return_value=mock_post)
+        mock_post.__aexit__ = AsyncMock(return_value=False)
+        mock_post.status = 403 # Simulate upstream error
 
-    assert response.status_code == 502
+        with patch.object(app.state.session, "post", return_value=mock_post):
+            response = await client.post("/chat", json={
+                "message": "hello",
+                "provider": "OpenAI"
+            })
+
+        assert response.status_code == 502
