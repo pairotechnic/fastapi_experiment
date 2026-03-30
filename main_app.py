@@ -7,7 +7,21 @@ import aiohttp # non-blocking http requests
 from fastapi import FastAPI, HTTPException # Use JSONResponse when you want precise control over the shape of the response
 from pydantic import BaseModel
 
+from config import (
+    LLM_URL, 
+    LLM_TIMEOUT_SECONDS, 
+    DEFAULT_MODEL, 
+    DEFAULT_PROVIDER, 
+    logger
+)
+
 # Local Application Imports
+
+# ------------------------------
+# Global Variables
+# ------------------------------
+
+LLM_TIMEOUT = aiohttp.ClientTimeout(total=LLM_TIMEOUT_SECONDS)
 
 # ------------------------------
 # Pydantic Models
@@ -19,8 +33,8 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel): 
     message: str
-    model: str = "claude-opus-4-6"
-    provider: str = "Anthropic"
+    model: str = DEFAULT_MODEL
+    provider: str = DEFAULT_PROVIDER
 
 class ChatResponse(BaseModel):
     id: str
@@ -46,9 +60,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Uses the Docker compose service name mock-llm
-LLM_URL = "http://mock-llm:8001/v1/chat/completions"
-
 # ------------------------------
 # Endpoints
 # ------------------------------
@@ -61,25 +72,24 @@ async def health():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
+    logger.info("Entered the /chat endpoint")
     payload = {
         "model": request.model,
         "provider": request.provider,
         "messages": [{"role": "user", "content": request.message}]
     }
 
-    timeout = aiohttp.ClientTimeout(total=30)
-
     # Network-level failure - mock LLM is down, DNS fails, connection refused, timeout
     try :
         # Hands control back to the event loop until response's headers and status code arrive
-        async with app.state.session.post(LLM_URL, json=payload, timeout=timeout) as response: 
+        async with app.state.session.post(LLM_URL, json=payload, timeout=LLM_TIMEOUT) as response: 
 
             # Don't share the upstream mock llm error status code with the end user, share a readable 502 server error
             if response.status != 200:
                 # Hands control back to event loop
                 # Control returns here after response body arrives, and event loop gives control back
                 error_body = await response.text()
-                print(f"LLM error — status: {response.status}, body: {error_body}")
+                logger.error(f"LLM error — status: {response.status}, body: {error_body}")
                 raise HTTPException(status_code=502, detail="LLM service error")
             
             # Hands control back to event loop, until the full body arrives
@@ -87,22 +97,22 @@ async def chat(request: ChatRequest):
             try :
                 data = await response.json()
             except Exception as e:
-                print(f"LLM returned invalid JSON: {e}")
+                logger.error(f"LLM returned invalid JSON: {e}")
                 raise HTTPException(status_code=502, detail="LLM returned invalid response")
             
     except HTTPException:
         raise # Let FastAPI handle these - don't swallow them in the outer except
 
     except aiohttp.ClientConnectionError as e:
-        print(f"Could not reach LLM - connection error: {e}")
+        logger.error(f"Could not reach LLM - connection error: {e}")
         raise HTTPException(status_code=503, detail="LLM service unavailable")
     
     except aiohttp.ServerTimeoutError as e:
-        print(f"LLM request timed out: {e}")
+        logger.error(f"LLM request timed out: {e}")
         raise HTTPException(status_code=504, detail="LLM service timed out")
     
     except Exception as e:
-        print(f"Unexpected error calling LLM: {e}")
+        logger.error(f"Unexpected error calling LLM: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
     # LLM returned JSON but is missing expected fields
@@ -115,5 +125,5 @@ async def chat(request: ChatRequest):
             dummy_field="hello_world" # Extra field will get stripped from response
         )
     except KeyError as e:
-        print(f"LLM response missing expected field: {e}")
+        logger.error(f"LLM response missing expected field: {e}")
         raise HTTPException(status_code=502, detail="Unexpected LLM response shape")
