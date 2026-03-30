@@ -1,10 +1,12 @@
 # Standard Library Imports
+from collections import defaultdict
 from contextlib import asynccontextmanager 
 import time
 
 # Third-Party Library Imports
 import aiohttp # non-blocking http requests
-from fastapi import FastAPI, HTTPException, Request # Use JSONResponse when you want precise control over the shape of the response
+from fastapi import FastAPI, HTTPException, Request 
+from fastapi.responses import JSONResponse # Use JSONResponse when you want precise control over the shape of the response
 from pydantic import BaseModel
 
 # Local Application Imports
@@ -13,6 +15,8 @@ from config import (
     LLM_TIMEOUT_SECONDS, 
     DEFAULT_MODEL, 
     DEFAULT_PROVIDER, 
+    RATE_LIMIT_REQUESTS,
+    RATE_LIMIT_WINDOW_SECONDS,
     logger
 )
 
@@ -22,6 +26,9 @@ from config import (
 # ------------------------------
 
 LLM_TIMEOUT = aiohttp.ClientTimeout(total=LLM_TIMEOUT_SECONDS)
+
+# Rate Limiting State
+request_log: dict[str: list[float]] = defaultdict(list)
 
 # ------------------------------
 # Pydantic Models
@@ -72,6 +79,29 @@ async def log_requests(request: Request, call_next):
         f"({duration_ms:.1f}ms)"
     )
     return response
+
+@app.middleware("http")
+async def rate_limiter(request: Request, call_next):
+    ip = request.client.host
+
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW_SECONDS
+
+    # Drop timestamps outside the current window
+    request_log[ip] = [t for t in request_log[ip] if t > window_start]
+
+    if len(request_log[ip]) >= RATE_LIMIT_REQUESTS:
+        logger.warning(f"Rate limit exceeded for IP : {ip}")
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests"}
+        )
+    
+    # Record this request
+    request_log[ip].append(now)
+
+    return await call_next(request)
+
 
 # ------------------------------
 # Endpoints
