@@ -1,12 +1,13 @@
 # Standard Library Imports
-# TODO : Explain this : contextlib, asynccontextmanager, async context manager, FastAPI lifespan pattern
 from contextlib import asynccontextmanager 
+import time
 
 # Third-Party Library Imports
 import aiohttp # non-blocking http requests
-from fastapi import FastAPI, HTTPException # Use JSONResponse when you want precise control over the shape of the response
+from fastapi import FastAPI, HTTPException, Request # Use JSONResponse when you want precise control over the shape of the response
 from pydantic import BaseModel
 
+# Local Application Imports
 from config import (
     LLM_URL, 
     LLM_TIMEOUT_SECONDS, 
@@ -15,7 +16,6 @@ from config import (
     logger
 )
 
-# Local Application Imports
 
 # ------------------------------
 # Global Variables
@@ -59,6 +59,19 @@ async def lifespan(app: FastAPI):
     # await app.state.session.close()
 
 app = FastAPI(lifespan=lifespan)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    end = time.time()
+    duration_ms = (end-start) * 1000
+    logger.info(
+        f"{request.method} {request.url.path} "
+        f"-> {response.status_code} "
+        f"({duration_ms:.1f}ms)"
+    )
+    return response
 
 # ------------------------------
 # Endpoints
