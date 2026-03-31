@@ -1,4 +1,5 @@
 # Standard Library Imports
+import asyncio
 from collections import defaultdict
 import json
 
@@ -189,7 +190,7 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_llm_timed_out(self, client):
 
-        with patch.object(app.state.session, "post", side_effect=aiohttp.ServerTimeoutError()):
+        with patch.object(app.state.session, "post", side_effect=TimeoutError()):
             response = await client.post("/chat", json={
                 "message": "hello",
                 "model": "claude-opus-4-6",

@@ -1,6 +1,13 @@
+# Standard Library Imports
+import asyncio
+import uuid
+
+# Third-Party Library Imports
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import uuid
+
+# Local Application Imports
+from config import logger
 
 app = FastAPI()
 
@@ -8,12 +15,19 @@ class ChatRequest(BaseModel):
     model: str
     provider: str
     messages: list[dict]
+    speed: str = ""
 
 @app.post("/v1/chat/completions", status_code=200)
 async def chat(request: ChatRequest):
     # Returns a static response no matter what you send
     # When you return a dict or Pydantic model from a FastAPI endpoint, without specifying a status code,
     # FastAPI defaults to 200 OK
+
+    logger.info("Entered the /chat endpoint")
+
+    if request.speed == "slow":
+        logger.info("Initiated asyncio.sleep(60)")
+        await asyncio.sleep(60)
     
     if request.provider == "OpenAI":
         raise HTTPException(status_code=403, detail="This provider is no longer supported")

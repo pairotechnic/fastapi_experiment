@@ -7,7 +7,11 @@ from config import logger
 
 def trace_exception_hierarchy(exc):
     exception_type = type(exc)
-    hierarchy = []
-    for cls in exception_type.__mro__:
-        hierarchy.append(cls.__name__)
-    logger.error(f"Exception hierarchy: {' -> '.join(hierarchy)}")
+    logger.error(f"{exception_type.__mro__}")
+
+def main():
+    import aiohttp
+    trace_exception_hierarchy(aiohttp.ServerTimeoutError())
+
+if __name__ == "__main__":
+    main()

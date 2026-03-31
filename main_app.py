@@ -41,6 +41,7 @@ class ChatRequest(BaseModel):
     message: str
     model: str = DEFAULT_MODEL
     provider: str = DEFAULT_PROVIDER
+    speed: str = ""
 
 class ChatResponse(BaseModel):
     id: str
@@ -59,6 +60,7 @@ async def lifespan(app: FastAPI):
     async with aiohttp.ClientSession() as app.state.session:
         # Rate Limiting State
         app.state.request_log = defaultdict(list)
+        logger.info(f"LLM_TIMEOUT_SECONDS loaded as: {LLM_TIMEOUT_SECONDS}")
         yield
 
     # Explicit version : 
@@ -120,7 +122,8 @@ async def chat(request: ChatRequest):
     payload = {
         "model": request.model,
         "provider": request.provider,
-        "messages": [{"role": "user", "content": request.message}]
+        "messages": [{"role": "user", "content": request.message}],
+        "speed": request.speed
     }
 
     # Network-level failure - mock LLM is down, DNS fails, connection refused, timeout
@@ -153,17 +156,19 @@ async def chat(request: ChatRequest):
             
     except HTTPException:
         raise # Let FastAPI handle these - don't swallow them in the outer except
-
-    except aiohttp.ServerTimeoutError as e:
-        logger.error(f"LLM request timed out: {e}")
-        raise HTTPException(status_code=504, detail="LLM service timed out")
     
     except aiohttp.ClientConnectionError as e:
         logger.error(f"Could not reach LLM - connection error: {e}")
         raise HTTPException(status_code=503, detail="LLM service unavailable")
     
+    except TimeoutError as e:
+        logger.error(f"LLM request timed out: {e}")
+        trace_exception_hierarchy(e)
+        raise HTTPException(status_code=504, detail="LLM service timed out")
+    
     except Exception as e:
         logger.error(f"Unexpected error calling LLM: {e}")
+        trace_exception_hierarchy(e)
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
     # LLM returned JSON but is missing expected fields
