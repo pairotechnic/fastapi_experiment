@@ -172,6 +172,20 @@ class TestChat:
         data = response.json()
         assert data["detail"] == "LLM returned invalid response"
 
+    @pytest.mark.asyncio
+    async def test_chat_llm_is_unreachable(self, client):
+
+        with patch.object(app.state.session, "post", side_effect=aiohttp.ClientConnectionError()):
+            response = await client.post("/chat", json={
+                "message": "hello",
+                "model": "claude-opus-4-6",
+                "provider": "Anthropic"
+            })
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["detail"] == "LLM service unavailable"
+
 class TestLogRequests:
     """Tests for log_requests middleware"""
 
