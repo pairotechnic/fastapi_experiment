@@ -154,13 +154,13 @@ async def chat(request: ChatRequest):
     except HTTPException:
         raise # Let FastAPI handle these - don't swallow them in the outer except
 
-    except aiohttp.ClientConnectionError as e:
-        logger.error(f"Could not reach LLM - connection error: {e}")
-        raise HTTPException(status_code=503, detail="LLM service unavailable")
-    
     except aiohttp.ServerTimeoutError as e:
         logger.error(f"LLM request timed out: {e}")
         raise HTTPException(status_code=504, detail="LLM service timed out")
+    
+    except aiohttp.ClientConnectionError as e:
+        logger.error(f"Could not reach LLM - connection error: {e}")
+        raise HTTPException(status_code=503, detail="LLM service unavailable")
     
     except Exception as e:
         logger.error(f"Unexpected error calling LLM: {e}")

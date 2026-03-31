@@ -186,6 +186,20 @@ class TestChat:
         data = response.json()
         assert data["detail"] == "LLM service unavailable"
 
+    @pytest.mark.asyncio
+    async def test_chat_llm_timed_out(self, client):
+
+        with patch.object(app.state.session, "post", side_effect=aiohttp.ServerTimeoutError()):
+            response = await client.post("/chat", json={
+                "message": "hello",
+                "model": "claude-opus-4-6",
+                "provider": "Anthropic"
+            })
+
+        assert response.status_code == 504
+        data = response.json()
+        assert data["detail"] == "LLM service timed out"
+
 class TestLogRequests:
     """Tests for log_requests middleware"""
 
