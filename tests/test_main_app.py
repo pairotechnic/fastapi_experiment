@@ -200,6 +200,34 @@ class TestChat:
         data = response.json()
         assert data["detail"] == "LLM service timed out"
 
+    @pytest.mark.asyncio
+    async def test_chat_response_missing_required_fields(self, client):
+        mock_response_data = {
+            # required "id" field missing
+            "content": "Success - Mock LLM Response",
+            "model": "claude-opus-4-6",
+            "provider": "Anthropic"
+        }
+
+        # We mock the aiohttp session so tests don't need the mock-llm container running
+        mock_post = AsyncMock()
+        mock_post.__aenter__ = AsyncMock(return_value=mock_post)
+        mock_post.__aexit__ = AsyncMock(return_value=False)
+        mock_post.status = 200 # Mock LLM response status
+        mock_post.json = AsyncMock(return_value=mock_response_data)
+
+        with patch.object(app.state.session, "post", return_value=mock_post):
+            response = await client.post("/chat", json={
+                "message": "hello",
+                "model": "claude-opus-4-6",
+                "provider": "Anthropic"
+            })
+
+        # Response status_code returned by /chat endpoint when it receives a 200 status from LLM
+        assert response.status_code == 502 
+        data = response.json()
+        assert data["detail"] == "Unexpected LLM response shape"
+
 class TestLogRequests:
     """Tests for log_requests middleware"""
 
