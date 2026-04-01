@@ -30,6 +30,13 @@ services:
       - mock-llm
     
     # Overrides the CMD in Dockerfile
-    command: uvicorn main_app:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main_app:app --host 0.0.0.0 --port 8000 --workers 4
 
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: fastapi_redis
+    ports:
+      - "6379:6379"
     restart: unless-stopped

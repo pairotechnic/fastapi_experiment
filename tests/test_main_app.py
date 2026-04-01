@@ -241,7 +241,7 @@ class TestRateLimiter:
             return await client.get("/health")
         
         # Fire many requests concurrently
-        responses = await asyncio.gather(*[hit_health_endpoint() for _ in range(10)])
+        responses = await asyncio.gather(*[hit_health_endpoint() for _ in range(20)])
 
         # responses = await asyncio.gather(
         #     client.get("/health"),

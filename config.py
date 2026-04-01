@@ -8,6 +8,7 @@ DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "claude-opus-4-6")
 DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "Anthropic")
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "5"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+REDIS_URL=os.getenv("REDIS_URL", "redis://redis:6379")
 
 logging.basicConfig(
     level=logging.INFO,

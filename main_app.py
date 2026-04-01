@@ -10,6 +10,7 @@ import aiohttp # non-blocking http requests
 from fastapi import FastAPI, HTTPException, Request 
 from fastapi.responses import JSONResponse # Use JSONResponse when you want precise control over the shape of the response
 from pydantic import BaseModel
+import redis.asyncio as aioredis
 
 # Local Application Imports
 from config import (
@@ -19,6 +20,7 @@ from config import (
     DEFAULT_PROVIDER, 
     RATE_LIMIT_REQUESTS,
     RATE_LIMIT_WINDOW_SECONDS,
+    REDIS_URL,
     logger
 )
 from helpers import trace_exception_hierarchy
@@ -61,7 +63,8 @@ async def lifespan(app: FastAPI):
     async with aiohttp.ClientSession() as app.state.session:
         # Rate Limiting State
         app.state.request_log = defaultdict(list)
-        app.state.rate_limit_lock = asyncio.Lock()
+        # app.state.rate_limit_lock = asyncio.Lock() # Locks a resource away from other coroutines on same worker, not across workers
+        app.state.redis = aioredis.from_url(REDIS_URL)
         logger.info(f"LLM_TIMEOUT_SECONDS loaded as: {LLM_TIMEOUT_SECONDS}")
         yield
 
@@ -88,28 +91,35 @@ async def log_requests(request: Request, call_next):
 @app.middleware("http")
 async def rate_limiter(request: Request, call_next):
     ip = request.client.host
+    key = f"rate_limit:{ip}"
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW_SECONDS
 
+    # Execute atomically in Redis - all 4 commands sent as one pipeline
+    async with app.state.redis.pipeline(transaction=True) as pipe :
+        # 1. Remove timestamps outside the current window
+        await pipe.zremrangebyscore(key, 0, window_start)
+
+        # 2. Count remaining requests in window
+        await pipe.zcard(key)
+
+        # 3. Add current request with timestamp as score
+        await pipe.zadd(key, {str(now): now})
+
+        # 4. Set expiry so keys don't linger forever
+        await pipe.expire(key, RATE_LIMIT_WINDOW_SECONDS)
+        
+        results = await pipe.execute()
+
+    requests_count = results[1] # zcard result
+
+    if requests_count >= RATE_LIMIT_REQUESTS: # since count is retrieved before adding current request
+        logger.warning(f"Rate limit exceeded for IP: {ip}")
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests"}
+        )
     
-    async with app.state.rate_limit_lock:
-        now = time.time()
-        window_start = now - RATE_LIMIT_WINDOW_SECONDS
-        # Drop timestamps outside the current window
-        app.state.request_log[ip] = [t for t in app.state.request_log[ip] if t > window_start]
-
-        if len(app.state.request_log[ip]) >= RATE_LIMIT_REQUESTS:
-            logger.warning(f"Rate limit exceeded for IP : {ip}")
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Too many requests"}
-            )
-        
-        # Simulate async work between check and append
-        # e.g. looking up IP in a database, or a Redis read
-        await asyncio.sleep(0)  # yields control back to event loop
-        
-        # Record this request
-        app.state.request_log[ip].append(now)
-
     return await call_next(request)
 
 
