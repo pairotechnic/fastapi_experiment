@@ -61,6 +61,7 @@ async def lifespan(app: FastAPI):
     async with aiohttp.ClientSession() as app.state.session:
         # Rate Limiting State
         app.state.request_log = defaultdict(list)
+        app.state.rate_limit_lock = asyncio.Lock()
         logger.info(f"LLM_TIMEOUT_SECONDS loaded as: {LLM_TIMEOUT_SECONDS}")
         yield
 
@@ -88,25 +89,26 @@ async def log_requests(request: Request, call_next):
 async def rate_limiter(request: Request, call_next):
     ip = request.client.host
 
-    now = time.time()
-    window_start = now - RATE_LIMIT_WINDOW_SECONDS
-
-    # Drop timestamps outside the current window
-    app.state.request_log[ip] = [t for t in app.state.request_log[ip] if t > window_start]
-
-    if len(app.state.request_log[ip]) >= RATE_LIMIT_REQUESTS:
-        logger.warning(f"Rate limit exceeded for IP : {ip}")
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Too many requests"}
-        )
     
-    # Simulate async work between check and append
-    # e.g. looking up IP in a database, or a Redis read
-    await asyncio.sleep(0)  # yields control back to event loop
-    
-    # Record this request
-    app.state.request_log[ip].append(now)
+    async with app.state.rate_limit_lock:
+        now = time.time()
+        window_start = now - RATE_LIMIT_WINDOW_SECONDS
+        # Drop timestamps outside the current window
+        app.state.request_log[ip] = [t for t in app.state.request_log[ip] if t > window_start]
+
+        if len(app.state.request_log[ip]) >= RATE_LIMIT_REQUESTS:
+            logger.warning(f"Rate limit exceeded for IP : {ip}")
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests"}
+            )
+        
+        # Simulate async work between check and append
+        # e.g. looking up IP in a database, or a Redis read
+        await asyncio.sleep(0)  # yields control back to event loop
+        
+        # Record this request
+        app.state.request_log[ip].append(now)
 
     return await call_next(request)
 
