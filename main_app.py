@@ -1,4 +1,5 @@
 # Standard Library Imports
+import asyncio
 from collections import defaultdict
 from contextlib import asynccontextmanager 
 import json
@@ -99,6 +100,10 @@ async def rate_limiter(request: Request, call_next):
             status_code=429,
             content={"detail": "Too many requests"}
         )
+    
+    # Simulate async work between check and append
+    # e.g. looking up IP in a database, or a Redis read
+    await asyncio.sleep(0)  # yields control back to event loop
     
     # Record this request
     app.state.request_log[ip].append(now)

@@ -234,3 +234,22 @@ class TestLogRequests:
 
 class TestRateLimiter:
     """Tests for rate_limiter middleware"""
+    
+    @pytest.mark.asyncio
+    async def test_rate_limiter_race_condition(self, client):
+        async def hit_health_endpoint():
+            return await client.get("/health")
+        
+        # Fire many requests concurrently
+        responses = await asyncio.gather(*[hit_health_endpoint() for _ in range(10)])
+
+        # responses = await asyncio.gather(
+        #     client.get("/health"),
+        #     client.get("/health"),
+        #     client.get("/health"),
+        # )
+
+        status_codes = [r.status_code for r in responses]
+
+        assert status_codes.count(200) == 5
+    
